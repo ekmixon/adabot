@@ -90,7 +90,7 @@ def get_open_issues_and_prs(repo):
     issues = result.json()
     for issue in issues:
         created = datetime.datetime.strptime(issue["created_at"], "%Y-%m-%dT%H:%M:%SZ")
-        days_open = datetime.datetime.today() - created
+        days_open = datetime.datetime.now() - created
         if days_open.days < 0:  # opened earlier today
             days_open += datetime.timedelta(days=(days_open.days * -1))
 
@@ -121,18 +121,17 @@ def get_contributors(repo):
     params = {"state": "closed", "sort": "updated", "direction": "desc"}
     result = github.get("/repos/adafruit/" + repo["name"] + "/pulls", params=params)
     if result.ok:
-        today_minus_seven = datetime.datetime.today() - datetime.timedelta(days=7)
+        today_minus_seven = datetime.datetime.now() - datetime.timedelta(days=7)
         pull_requests = result.json()
         for pull_request in pull_requests:
             merged_at = datetime.datetime.min
-            if "merged_at" in pull_request:
-                if pull_request["merged_at"] is None:
-                    continue
-                merged_at = datetime.datetime.strptime(
-                    pull_request["merged_at"], "%Y-%m-%dT%H:%M:%SZ"
-                )
-            else:
+            if "merged_at" not in pull_request:
                 continue
+            if pull_request["merged_at"] is None:
+                continue
+            merged_at = datetime.datetime.strptime(
+                pull_request["merged_at"], "%Y-%m-%dT%H:%M:%SZ"
+            )
             if merged_at < today_minus_seven:
                 continue
             contributors.append(pull_request["user"]["login"])
@@ -147,9 +146,11 @@ def get_contributors(repo):
             pr_reviews = github.get(str(pr_info["url"]) + "/reviews")
             if not pr_reviews.ok:
                 continue
-            for review in pr_reviews.json():
-                if review["state"].lower() == "approved":
-                    reviewers.append(review["user"]["login"])
+            reviewers.extend(
+                review["user"]["login"]
+                for review in pr_reviews.json()
+                if review["state"].lower() == "approved"
+            )
 
     return contributors, reviewers, merged_pr_count
 

@@ -93,18 +93,19 @@ def get_pypi_stats():
     repos = common_funcs.list_repos()
     dl_stats = piwheels_stats()
     for repo in repos:
-        if repo["owner"]["login"] == "adafruit" and repo["name"].startswith(
-            "Adafruit_CircuitPython"
+        if (
+            repo["owner"]["login"] == "adafruit"
+            and repo["name"].startswith("Adafruit_CircuitPython")
+            and common_funcs.repo_is_on_pypi(repo)
         ):
-            if common_funcs.repo_is_on_pypi(repo):
-                pkg_name = repo["name"].replace("_", "-").lower()
-                if pkg_name in dl_stats:
-                    successful_stats[repo["name"]] = (
-                        dl_stats[pkg_name]["month"],
-                        dl_stats[pkg_name]["total"],
-                    )
-                else:
-                    failed_stats.append(repo["name"])
+            pkg_name = repo["name"].replace("_", "-").lower()
+            if pkg_name in dl_stats:
+                successful_stats[repo["name"]] = (
+                    dl_stats[pkg_name]["month"],
+                    dl_stats[pkg_name]["total"],
+                )
+            else:
+                failed_stats.append(repo["name"])
 
     for lib in PYPI_FORCE_NON_CIRCUITPYTHON:
         pkg_name = lib.lower()
@@ -125,7 +126,7 @@ def get_bundle_stats(bundle):
     that tag name(s) will be the date (YYYYMMDD).
     """
     stats_dict = {}
-    bundle_stats = github.get("/repos/adafruit/" + bundle + "/releases")
+    bundle_stats = github.get(f"/repos/adafruit/{bundle}/releases")
     if not bundle_stats.ok:
         return {"Failed to retrieve bundle stats": bundle_stats.text}
     start_date = datetime.date.today()
@@ -138,9 +139,7 @@ def get_bundle_stats(bundle):
                 int(release["tag_name"][6:]),
             )
         except ValueError:
-            output_handler(
-                "Skipping release. Tag name invalid: {}".format(release["tag_name"])
-            )
+            output_handler(f'Skipping release. Tag name invalid: {release["tag_name"]}')
             continue
         if (start_date - release_date).days > 7:
             break
@@ -170,8 +169,9 @@ def run_stat_check():
     """Run and report all download stats."""
     output_handler("Adafruit CircuitPython Library Download Stats")
     output_handler(
-        "Report Date: {}".format(datetime.datetime.now().strftime("%d %B %Y, %I:%M%p"))
+        f'Report Date: {datetime.datetime.now().strftime("%d %B %Y, %I:%M%p")}'
     )
+
     output_handler()
     output_handler("Adafruit_CircuitPython_Bundle downloads for the past week:")
     for stat in sorted(
@@ -191,17 +191,18 @@ def run_stat_check():
     output_handler("Adafruit CircuitPython Library Piwheels downloads:")
     output_handler()
     pypi_downloads, pypi_failures = get_pypi_stats()
-    for stat in sorted(
-        pypi_downloads.items(), key=operator.itemgetter(1, 1), reverse=True
-    ):
-        downloads_list.append(
-            ["| " + str(stat[0]), "| " + str(stat[1][0]), "| " + str(stat[1][1]) + " |"]
+    downloads_list.extend(
+        [f"| {str(stat[0])}", f"| {str(stat[1][0])}", f"| {str(stat[1][1])} |"]
+        for stat in sorted(
+            pypi_downloads.items(), key=operator.itemgetter(1, 1), reverse=True
         )
+    )
 
     long_col = [
-        (max([len(str(row[i])) for row in downloads_list]) + 3)
+        max(len(str(row[i])) for row in downloads_list) + 3
         for i in range(len(downloads_list[0]))
     ]
+
     row_format = "".join(["{:<" + str(this_col) + "}" for this_col in long_col])
     for lib in downloads_list:
         output_handler(row_format.format(*lib))
@@ -210,7 +211,7 @@ def run_stat_check():
         output_handler()
         output_handler(" * Failed to retrieve stats for the following libraries:")
         for fail in pypi_failures:
-            output_handler("   * {}".format(fail))
+            output_handler(f"   * {fail}")
 
 
 if __name__ == "__main__":

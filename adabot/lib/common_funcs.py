@@ -86,16 +86,14 @@ def parse_gitmodules(input_text):
             # it to the results, then start parsing a new section.
             if submodule_name is not None:
                 results.append((submodule_name, submodule_variables))
-            submodule_name = submodule_section_match.group(1)
+            submodule_name = submodule_section_match[1]
             submodule_variables = {}
         elif variable_match:
             # Found a variable, add it to the current section variables.
             # Force the variable name to lower case as variable names are
             # case-insensitive in git config sections and this makes later
             # processing easier (can assume lower-case names to find values).
-            submodule_variables[variable_match.group(1).lower()] = variable_match.group(
-                2
-            )
+            submodule_variables[variable_match[1].lower()] = variable_match[2]
     # Add the last parsed section if it exists.
     if submodule_name is not None:
         results.append((submodule_name, submodule_variables))
@@ -222,11 +220,11 @@ def list_repos(*, include_repos=None):
     if include_repos:
         for repo in include_repos:
             if repo not in repo_names:
-                add_repo = github.get("/repos/adafruit/" + repo)
+                add_repo = github.get(f"/repos/adafruit/{repo}")
                 if add_repo.ok:
                     repos.append(add_repo.json())
                 else:
-                    print("list_repos(): Failed to retrieve '{}'".format(repo))
+                    print(f"list_repos(): Failed to retrieve '{repo}'")
 
     return repos
 
@@ -237,10 +235,15 @@ def get_docs_link(bundle_path, submodule):
     try:
         with open(f"{bundle_path}/{submodule[1]['path']}/README.rst", "r") as readme:
             lines = readme.read().split("\n")
-        for i in range(10):
-            if "target" in lines[i] and "readthedocs" in lines[i]:
-                return lines[i].replace("    :target: ", "")
-        return None
+        return next(
+            (
+                lines[i].replace("    :target: ", "")
+                for i in range(10)
+                if "target" in lines[i] and "readthedocs" in lines[i]
+            ),
+            None,
+        )
+
     except FileNotFoundError:
         # didn't find readme
         return None
@@ -248,12 +251,8 @@ def get_docs_link(bundle_path, submodule):
 
 def repo_is_on_pypi(repo):
     """returns True when the provided repository is in pypi"""
-    is_on = False
     the_page = pypi.get("/pypi/" + repo["name"] + "/json")
-    if the_page and the_page.status_code == 200:
-        is_on = True
-
-    return is_on
+    return bool(the_page and the_page.status_code == 200)
 
 
 def is_new_or_updated(repo):
@@ -262,7 +261,7 @@ def is_new_or_updated(repo):
     released library, or an updated library.
     """
 
-    today_minus_seven = datetime.datetime.today() - datetime.timedelta(days=7)
+    today_minus_seven = datetime.datetime.now() - datetime.timedelta(days=7)
 
     # first, check the latest release to see if within the last 7 days
     result = github.get("/repos/adafruit/" + repo["name"] + "/releases/latest")
@@ -295,10 +294,7 @@ def is_new_or_updated(repo):
         if not release_date < today_minus_seven:
             new_releases += 1
 
-    if new_releases == len(releases):
-        return "new"
-
-    return "updated"
+    return "new" if new_releases == len(releases) else "updated"
 
 
 def whois_github_user():
@@ -307,11 +303,9 @@ def whois_github_user():
     """
     user = None
     if "GITHUB_ACTOR" in os.environ:
-        user = os.environ["GITHUB_ACTOR"]
+        return os.environ["GITHUB_ACTOR"]
     else:
-        user = github.get("/user").json()["login"]
-
-    return user
+        return github.get("/user").json()["login"]
 
 
 class InsightData(collections.UserDict):

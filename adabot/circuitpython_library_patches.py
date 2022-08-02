@@ -22,6 +22,7 @@
 
 """Adabot utility for applying patches to all CircuitPython Libraries."""
 
+
 import argparse
 import os
 import shutil
@@ -35,8 +36,8 @@ from adabot.lib import common_funcs
 
 
 working_directory = os.path.abspath(os.getcwd())
-lib_directory = working_directory + "/.libraries/"
-patch_directory = working_directory + "/patches/"
+lib_directory = f"{working_directory}/.libraries/"
+patch_directory = f"{working_directory}/patches/"
 repos = []
 check_errors = []
 apply_errors = []
@@ -100,13 +101,14 @@ def get_repo_list():
     """
     repo_list = []
     get_repos = common_funcs.list_repos()
-    for repo in get_repos:
-        if not (
+    repo_list.extend(
+        dict(name=repo["name"], url=repo["clone_url"])
+        for repo in get_repos
+        if (
             repo["owner"]["login"] == "adafruit"
             and repo["name"].startswith("Adafruit_CircuitPython")
-        ):
-            continue
-        repo_list.append(dict(name=repo["name"], url=repo["clone_url"]))
+        )
+    )
 
     return repo_list
 
@@ -121,15 +123,10 @@ def get_patches(run_local):
             "https://api.github.com/repos/adafruit/adabot/contents/patches"
         )
         if contents.ok:
-            for patch in contents.json():
-                patch_name = patch["name"]
-                return_list.append(patch_name)
+            return_list.extend(patch["name"] for patch in contents.json())
     else:
         contents = os.listdir(patch_directory)
-        for file in contents:
-            if file.endswith(".patch"):
-                return_list.append(file)
-
+        return_list.extend(file for file in contents if file.endswith(".patch"))
     return return_list
 
 # pylint: disable=too-many-arguments
@@ -143,7 +140,7 @@ def apply_patch(repo_directory, patch_filepath, repo, patch, flags, use_apply):
     to ensure that any passed flags that turn off apply (e.g. `--check`)
     are overridden.
     """
-    if not os.getcwd() == repo_directory:
+    if os.getcwd() != repo_directory:
         os.chdir(repo_directory)
 
     if not use_apply:
@@ -156,9 +153,7 @@ def apply_patch(repo_directory, patch_filepath, repo, patch, flags, use_apply):
             return False
     else:
         apply_flags = ["--apply"]
-        for flag in flags:
-            if not flag == "--signoff":
-                apply_flags.append(flag)
+        apply_flags.extend(flag for flag in flags if flag != "--signoff")
         try:
             git.apply(apply_flags, patch_filepath)
         except sh.ErrorReturnCode as err:
@@ -214,9 +209,7 @@ def check_patches(repo, patches, flags, use_apply, dry_run):
         try:
             git.clone(repo["url"])
         except sh.ErrorReturnCode_128 as err:
-            if b"already exists" in err.stderr:
-                pass
-            else:
+            if b"already exists" not in err.stderr:
                 raise RuntimeError(err.stderr) from None
         os.chdir(repo_directory)
 
@@ -225,9 +218,12 @@ def check_patches(repo, patches, flags, use_apply, dry_run):
         try:
             check_flags = ["--check"]
             if use_apply:
-                for flag in flags:
-                    if not flag in ("--apply", "--signoff"):
-                        check_flags.append(flag)
+                check_flags.extend(
+                    flag
+                    for flag in flags
+                    if flag not in ("--apply", "--signoff")
+                )
+
             git.apply(check_flags, patch_filepath)
             run_apply = True
         except sh.ErrorReturnCode_1 as err:
@@ -235,7 +231,7 @@ def check_patches(repo, patches, flags, use_apply, dry_run):
             if b"error" not in err.stderr or b"patch does not apply" in err.stderr:
                 parse_err = err.stderr.decode()
                 parse_err = parse_err[parse_err.rfind(":") + 1 : -1]
-                print("   . Skipping {}:{}".format(repo["name"], parse_err))
+                print(f'   . Skipping {repo["name"]}:{parse_err}')
                 skipped += 1
             else:
                 failed += 1
@@ -262,30 +258,28 @@ def check_patches(repo, patches, flags, use_apply, dry_run):
                 )
             )
 
-        if run_apply and not dry_run:
-            result = apply_patch(
-                repo_directory, patch_filepath, repo["name"], patch, flags, use_apply
-            )
-            if result:
+        if run_apply:
+            if dry_run:
                 applied += 1
-            else:
-                failed += 1
-        elif run_apply and dry_run:
-            applied += 1
 
+            else:
+                result = apply_patch(
+                    repo_directory, patch_filepath, repo["name"], patch, flags, use_apply
+                )
+                if result:
+                    applied += 1
+                else:
+                    failed += 1
     return [applied, skipped, failed]
 
 
 if __name__ == "__main__":
     cli_args = cli_parser.parse_args()
-    if cli_args.run_local:
-        if cli_args.dry_run or cli_args.list:
-            pass
-        else:
-            raise RuntimeError(
-                "'--local' can only be used in conjunction with"
-                " '--dry-run' or '--list'."
-            )
+    if cli_args.run_local and not cli_args.dry_run and not cli_args.list:
+        raise RuntimeError(
+            "'--local' can only be used in conjunction with"
+            " '--dry-run' or '--list'."
+        )
 
     run_patches = get_patches(cli_args.run_local)
     cmd_flags = ["--signoff"]
@@ -294,10 +288,8 @@ if __name__ == "__main__":
         print("Available Patches:", run_patches)
         sys.exit()
     if cli_args.patch:
-        if not cli_args.patch in run_patches:
-            raise ValueError(
-                "'{}' is not an available patchfile.".format(cli_args.patch)
-            )
+        if cli_args.patch not in run_patches:
+            raise ValueError(f"'{cli_args.patch}' is not an available patchfile.")
         run_patches = [cli_args.patch]
     if cli_args.flags is not None:
         if not cli_args.patch:
@@ -306,22 +298,22 @@ if __name__ == "__main__":
             )
         if "[-i]" in cli_args.flags:
             raise ValueError("Interactive Mode flag not allowed.")
-        for flag_arg in cli_args.flags:
-            if not flag_arg == "[--signoff]":
-                cmd_flags.append(flag_arg.strip("[]"))
-    if cli_args.use_apply:
-        if not cli_args.patch:
-            raise RuntimeError(
-                "Must be used with a single patch. See help (-h) for usage."
-            )
+        cmd_flags.extend(
+            flag_arg.strip("[]")
+            for flag_arg in cli_args.flags
+            if flag_arg != "[--signoff]"
+        )
+
+    if cli_args.use_apply and not cli_args.patch:
+        raise RuntimeError(
+            "Must be used with a single patch. See help (-h) for usage."
+        )
 
     print(".... Beginning Patch Updates ....")
     print(".... Working directory:", working_directory)
     print(".... Library directory:", lib_directory)
     print(".... Patches directory:", patch_directory)
 
-    check_errors = []
-    apply_errors = []
     stats = [0, 0, 0]
 
     print(".... Deleting any previously cloned libraries")
@@ -351,7 +343,7 @@ if __name__ == "__main__":
     print(".... Patches Skipped:", stats[1])
     print(".... Patches Failed:", stats[2], "\n")
     print(".... Patch Check Failure Report ....")
-    if len(check_errors) > 0:
+    if check_errors := []:
         for error in check_errors:
             print(
                 ">> Repo: {0}\tPatch: {1}\n   Error: {2}".format(
@@ -362,7 +354,7 @@ if __name__ == "__main__":
         print("No Failures")
     print("\n")
     print(".... Patch Apply Failure Report ....")
-    if len(apply_errors) > 0:
+    if apply_errors := []:
         for error in apply_errors:
             print(
                 ">> Repo: {0}\tPatch: {1}\n   Error: {2}".format(

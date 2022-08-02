@@ -29,7 +29,7 @@ import requests
 
 def _fix_url(url):
     if url.startswith("/"):
-        url = "https://pypi.org" + url
+        url = f"https://pypi.org{url}"
     return url
 
 

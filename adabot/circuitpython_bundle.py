@@ -63,9 +63,10 @@ def fetch_bundle(bundle, bundle_path):
             git.clone(
                 "-o",
                 "adafruit",
-                "https://github.com/adafruit/" + bundle + ".git",
+                f"https://github.com/adafruit/{bundle}.git",
                 bundle_path,
             )
+
     working_directory = os.getcwd()
     os.chdir(bundle_path)
     git.pull()
@@ -79,7 +80,7 @@ def check_lib_links_md(bundle_path):
     """Checks and updates the `circuitpython_library_list` Markdown document
     located in the Adafruit CircuitPython Bundle.
     """
-    if not "Adafruit_CircuitPython_Bundle" in bundle_path:
+    if "Adafruit_CircuitPython_Bundle" not in bundle_path:
         return []
     submodules_list = sorted(
         common_funcs.get_bundle_submodules(), key=lambda module: module[1]["path"]
@@ -106,12 +107,10 @@ def check_lib_links_md(bundle_path):
         ]
         pypi_name = ""
         if common_funcs.repo_is_on_pypi({"name": url_name}):
-            pypi_name = " ([PyPi](https://pypi.org/project/{}))".format(
-                url_name.replace("_", "-").lower()
-            )
+            pypi_name = f' ([PyPi](https://pypi.org/project/{url_name.replace("_", "-").lower()}))'
+
         docs_name = ""
-        docs_link = common_funcs.get_docs_link(bundle_path, submodule)
-        if docs_link:
+        if docs_link := common_funcs.get_docs_link(bundle_path, submodule):
             docs_name = f" \([Docs]({docs_link}))"  # pylint: disable=anomalous-backslash-in-string
         title = url_name.replace("_", " ")
         list_line = "* [{0}]({1}){2}{3}".format(title, url, pypi_name, docs_name)
@@ -217,8 +216,7 @@ def update_bundle(bundle_path):
     status = StringIO()
     git.status("--short", _out=status)
     updates = []
-    status = status.getvalue().strip()
-    if status:
+    if status := status.getvalue().strip():
         for status_line in status.split("\n"):
             action, directory = status_line.split()
             if directory.endswith("library_list.md"):
@@ -238,21 +236,17 @@ def update_bundle(bundle_path):
             summary = "\n".join(diff_lines[1:-1])
             updates.append((url[:-4], old_commit, new_commit, summary))
     os.chdir(working_directory)
-    lib_list_updates = check_lib_links_md(bundle_path)
-    if lib_list_updates:
+    if lib_list_updates := check_lib_links_md(bundle_path):
         updates.append(
             (
-                (
-                    "https://github.com/adafruit/Adafruit_CircuitPython_Bundle/"
-                    "circuitpython_library_list.md"
-                ),
+                "https://github.com/adafruit/Adafruit_CircuitPython_Bundle/"
+                "circuitpython_library_list.md",
                 "NA",
                 "NA",
-                "  > Added the following libraries: {}".format(
-                    ", ".join(lib_list_updates)
-                ),
+                f'  > Added the following libraries: {", ".join(lib_list_updates)}',
             )
         )
+
 
     return updates
 
@@ -260,17 +254,13 @@ def update_bundle(bundle_path):
 def commit_updates(bundle_path, update_info):
     """Commit changes to `bundle_path` using `update_info` for the commit message."""
     working_directory = os.path.abspath(os.getcwd())
-    message = ["Automated update by Adabot (adafruit/adabot@{})".format(repo_version())]
+    message = [f"Automated update by Adabot (adafruit/adabot@{repo_version()})"]
     os.chdir(bundle_path)
     for url, old_commit, new_commit, summary in update_info:
         url_parts = url.split("/")
         user, repo = url_parts[-2:]
-        summary = summary.replace("#", "{}/{}#".format(user, repo))
-        message.append(
-            "Updating {} to {} from {}:\n{}".format(
-                url, new_commit, old_commit, summary
-            )
-        )
+        summary = summary.replace("#", f"{user}/{repo}#")
+        message.append(f"Updating {url} to {new_commit} from {old_commit}:\n{summary}")
     message = "\n\n".join(message)
     git.add(".")
     git.commit(message=message)
@@ -298,17 +288,17 @@ def get_contributors(repo, commit_range):
         return contributors
     for log_line in output.split("\n"):
         sha, author_email, committer_email = log_line.split(",")
-        author = REDIS.get("github_username:" + author_email)
-        committer = REDIS.get("github_username:" + committer_email)
+        author = REDIS.get(f"github_username:{author_email}")
+        committer = REDIS.get(f"github_username:{committer_email}")
         if not author or not committer:
-            github_commit_info = github.get("/repos/" + repo + "/commits/" + sha)
+            github_commit_info = github.get(f"/repos/{repo}/commits/{sha}")
             github_commit_info = github_commit_info.json()
             if github_commit_info["author"]:
                 author = github_commit_info["author"]["login"]
-                REDIS.set("github_username:" + author_email, author)
+                REDIS.set(f"github_username:{author_email}", author)
             if github_commit_info["committer"]:
                 committer = github_commit_info["committer"]["login"]
-                REDIS.set("github_username:" + committer_email, committer)
+                REDIS.set(f"github_username:{committer_email}", committer)
         else:
             author = author.decode("utf-8")
             committer = committer.decode("utf-8")
@@ -331,7 +321,7 @@ def repo_name(url):
     if url.endswith(".git"):
         url = url[:-4]
     url = url.split("/")
-    return url[-2] + "/" + url[-1]
+    return f"{url[-2]}/{url[-1]}"
 
 
 # TODO: turn `master_list` into a set()?
@@ -349,15 +339,15 @@ def new_release(bundle, bundle_path):
     working_directory = os.path.abspath(os.getcwd())
     os.chdir(bundle_path)
     print(bundle)
-    current_release = github.get("/repos/adafruit/{}/releases/latest".format(bundle))
+    current_release = github.get(f"/repos/adafruit/{bundle}/releases/latest")
     last_tag = current_release.json()["tag_name"]
-    contributors = get_contributors("adafruit/" + bundle, last_tag + "..")
+    contributors = get_contributors(f"adafruit/{bundle}", f"{last_tag}..")
     added_submodules = []
     updated_submodules = []
     repo_links = {}
 
     output = StringIO()
-    git.diff("--submodule=short", last_tag + "..", _out=output)
+    git.diff("--submodule=short", f"{last_tag}..", _out=output)
     output = output.getvalue().strip()
     if not output:
         print("Everything is already released.")
@@ -395,45 +385,45 @@ def new_release(bundle, bundle_path):
         with Submodule(directory):
             submodule_contributors = get_contributors(repo_name(repo_url), commit_range)
             add_contributors(contributors, submodule_contributors)
-        repo_links[library_name] = repo_url[:-4] + "/releases/" + release_tag
+        repo_links[library_name] = f"{repo_url[:-4]}/releases/{release_tag}"
 
     release_description = []
     if added_submodules:
-        additions = []
-        for library in added_submodules:
-            additions.append("[{}]({})".format(library, repo_links[library]))
+        additions = [
+            f"[{library}]({repo_links[library]})"
+            for library in added_submodules
+        ]
+
         release_description.append("New libraries: " + ", ".join(additions))
 
     if updated_submodules:
-        updates = []
-        for library in updated_submodules:
-            updates.append("[{}]({})".format(library, repo_links[library]))
+        updates = [
+            f"[{library}]({repo_links[library]})"
+            for library in updated_submodules
+        ]
+
         release_description.append("Updated libraries: " + ", ".join(updates))
 
     release_description.append("")
 
     contributors = sorted(contributors, key=contributors.__getitem__, reverse=True)
-    contributors = ["@" + x for x in contributors]
+    contributors = [f"@{x}" for x in contributors]
 
-    release_description.append(
-        "As always, thank you to all of our contributors: " + ", ".join(contributors)
-    )
-
-    release_description.append("\n--------------------------\n")
-
-    release_description.append(
-        "The libraries in each release are compiled for all recent major versions of CircuitPython."
-        " Please download the one that matches the major version of your CircuitPython. For example"
-        ", if you are running 6.0.0 you should download the `6.x` bundle.\n"
-    )
-
-    release_description.append(
-        "To install, simply download the matching zip file, unzip it, and selectively copy the"
-        " libraries you would like to install into the lib folder on your CIRCUITPY drive. This is"
-        " especially important for non-express boards with limited flash, such as the"
-        " [Trinket M0](https://www.adafruit.com/product/3500),"
-        " [Gemma M0](https://www.adafruit.com/product/3501) and"
-        " [Feather M0 Basic](https://www.adafruit.com/product/2772)."
+    release_description.extend(
+        (
+            "As always, thank you to all of our contributors: "
+            + ", ".join(contributors),
+            "\n--------------------------\n",
+            "The libraries in each release are compiled for all recent major versions of CircuitPython."
+            " Please download the one that matches the major version of your CircuitPython. For example"
+            ", if you are running 6.0.0 you should download the `6.x` bundle.\n",
+            "To install, simply download the matching zip file, unzip it, and selectively copy the"
+            " libraries you would like to install into the lib folder on your CIRCUITPY drive. This is"
+            " especially important for non-express boards with limited flash, such as the"
+            " [Trinket M0](https://www.adafruit.com/product/3500),"
+            " [Gemma M0](https://www.adafruit.com/product/3501) and"
+            " [Feather M0 Basic](https://www.adafruit.com/product/2772).",
+        )
     )
 
     release = {
@@ -445,9 +435,9 @@ def new_release(bundle, bundle_path):
         "prerelease": False,
     }
 
-    print("Releasing {}".format(release["tag_name"]))
+    print(f'Releasing {release["tag_name"]}')
     print(release["body"])
-    response = github.post("/repos/adafruit/" + bundle + "/releases", json=release)
+    response = github.post(f"/repos/adafruit/{bundle}/releases", json=release)
     if not response.ok:
         print("Failed to create release")
         print(release)
@@ -466,8 +456,7 @@ if __name__ == "__main__":
         bundle_dir = os.path.join(bundles_dir, cp_bundle)
         try:
             fetch_bundle(cp_bundle, bundle_dir)
-            updates_needed = update_bundle(bundle_dir)
-            if updates_needed:
+            if updates_needed := update_bundle(bundle_dir):
                 commit_updates(bundle_dir, updates_needed)
                 push_updates(bundle_dir)
             new_release(cp_bundle, bundle_dir)

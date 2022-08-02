@@ -48,18 +48,18 @@ def setup_cache(expire_after=7200):
 
 def _fix_url(url):
     if url.startswith("/"):
-        url = "https://api.github.com" + url
+        url = f"https://api.github.com{url}"
     return url
 
 
 def _fix_kwargs(kwargs):
-    api_version = (
-        "application/vnd.github.scarlet-witch-preview+json;"
-        "application/vnd.github.hellcat-preview+json"
-    )
     if "headers" in kwargs:
+        api_version = (
+            "application/vnd.github.scarlet-witch-preview+json;"
+            "application/vnd.github.hellcat-preview+json"
+        )
         if "Accept" in kwargs["headers"]:
-            kwargs["headers"]["Accept"] += ";" + api_version
+            kwargs["headers"]["Accept"] += f";{api_version}"
         else:
             kwargs["headers"]["Accept"] = api_version
     else:
@@ -67,8 +67,8 @@ def _fix_kwargs(kwargs):
     if "ADABOT_GITHUB_ACCESS_TOKEN" in os.environ and "auth" not in kwargs:
         user = os.environ.get("ADABOT_GITHUB_USER", "")
         access_token = os.environ["ADABOT_GITHUB_ACCESS_TOKEN"]
-        basic_encoded = b64encode(str(user + ":" + access_token).encode()).decode()
-        auth_header = "Basic {}".format(basic_encoded)
+        basic_encoded = b64encode(str(f"{user}:{access_token}").encode()).decode()
+        auth_header = f"Basic {basic_encoded}"
 
         kwargs["headers"]["Authorization"] = auth_header
 

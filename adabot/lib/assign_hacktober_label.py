@@ -110,17 +110,16 @@ def ensure_hacktober_label_exists(repo, dry_run=False):
     repo_labels = [label["name"] for label in response.json()]
 
     hacktober_exists = {"Hacktoberfest", "hacktoberfest"} & set(repo_labels)
-    if not hacktober_exists:
+    if not hacktober_exists and not dry_run:
         params = {
             "name": "Hacktoberfest",
             "color": "f2b36f",
             "description": "DigitalOcean's Hacktoberfest",
         }
-        if not dry_run:
-            result = github.post(f"/repos/{repo['full_name']}/labels", json=params)
-            if not result.status_code == 201:
-                print(f"Failed to create new Hacktoberfest label for: {repo['name']}")
-                return False
+        result = github.post(f"/repos/{repo['full_name']}/labels", json=params)
+        if result.status_code != 201:
+            print(f"Failed to create new Hacktoberfest label for: {repo['name']}")
+            return False
 
     return True
 
@@ -137,7 +136,6 @@ def assign_hacktoberfest(repo, issues=None, remove_labels=False, dry_run=False):
     for issue in issues:
         update_issue = False
         label_names = [label["name"] for label in issue["labels"]]
-        has_good_first = "good first issue" in label_names
         has_hacktober = {"Hacktoberfest", "hacktoberfest"} & set(label_names)
 
         if remove_labels:
@@ -147,6 +145,7 @@ def assign_hacktoberfest(repo, issues=None, remove_labels=False, dry_run=False):
                 ]
                 update_issue = True
         else:
+            has_good_first = "good first issue" in label_names
             if has_good_first and not has_hacktober:
                 label_exists = ensure_hacktober_label_exists(repo, dry_run)
                 if not label_exists:
@@ -176,12 +175,10 @@ def assign_hacktoberfest(repo, issues=None, remove_labels=False, dry_run=False):
 
 def process_hacktoberfest(repo, issues=None, remove_labels=False, dry_run=False):
     """Run hacktoberfest functions and return the result."""
-    result = assign_hacktoberfest(repo, issues, remove_labels, dry_run)
-    return result
+    return assign_hacktoberfest(repo, issues, remove_labels, dry_run)
 
 
 if __name__ == "__main__":
-    LABELS_ASSIGNED = 0
     args = cli_args.parse_args()
 
     if not args.remove_labels:
@@ -190,10 +187,12 @@ if __name__ == "__main__":
         print("Checking for open issues to remove the Hacktoberfest label from...")
 
     repos = common_funcs.list_repos()
-    for repository in repos:
-        LABELS_ASSIGNED += process_hacktoberfest(
+    LABELS_ASSIGNED = sum(
+        process_hacktoberfest(
             repository, remove_labels=args.remove_labels, dry_run=args.dry_run
         )
+        for repository in repos
+    )
 
     if not args.remove_labels:
         print(f"Added the Hacktoberfest label to {LABELS_ASSIGNED} issues.")

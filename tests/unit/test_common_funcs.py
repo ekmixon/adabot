@@ -96,7 +96,7 @@ def test_get_docs_link(links, tmp_path):
 
 def published_date(subtract_days=0):
     """Utility to return a formatted date"""
-    pub_date = datetime.datetime.today()
+    pub_date = datetime.datetime.now()
     pub_date = pub_date - datetime.timedelta(days=subtract_days)
     return datetime.datetime.strftime(pub_date, "%Y-%m-%dT%H:%M:%SZ")
 

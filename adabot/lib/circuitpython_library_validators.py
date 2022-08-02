@@ -284,9 +284,7 @@ class LibraryValidator:
         repo_fields = repo.copy()
 
         repo_fields_keys = set(repo_fields.keys())
-        repo_missing_some_keys = search_keys.difference(repo_fields_keys)
-
-        if repo_missing_some_keys:
+        if repo_missing_some_keys := search_keys.difference(repo_fields_keys):
             # only call the API if the passed in `repo` doesn't have what
             # we need.
             response = github.get("/repos/" + repo["full_name"])
@@ -302,7 +300,10 @@ class LibraryValidator:
         if repo_fields.get("has_wiki"):
             errors.append(ERROR_WIKI_DISABLED)
 
-        if not repo_fields.get("license") and not repo["name"] in BUNDLE_IGNORE_LIST:
+        if (
+            not repo_fields.get("license")
+            and repo["name"] not in BUNDLE_IGNORE_LIST
+        ):
             errors.append(ERROR_MISSING_LICENSE)
 
         if not repo_fields.get("permissions", {}).get("push"):
@@ -311,7 +312,7 @@ class LibraryValidator:
         repo_in_bundle = common_funcs.is_repo_in_bundle(
             repo_fields["clone_url"], self.bundle_submodules
         )
-        if not repo_in_bundle and not repo["name"] in BUNDLE_IGNORE_LIST:
+        if not repo_in_bundle and repo["name"] not in BUNDLE_IGNORE_LIST:
             # Don't assume the bundle will bundle itself and possibly
             # other repos.
             errors.append(ERROR_NOT_IN_BUNDLE)
@@ -420,7 +421,7 @@ class LibraryValidator:
                     [file["filename"] for file in compare_tags_json.get("files")]
                 )
                 if filtered_files:
-                    oldest_commit_date = datetime.datetime.today()
+                    oldest_commit_date = datetime.datetime.now()
                     for commit in compare_tags_json["commits"]:
                         commit_date_val = commit["commit"]["committer"]["date"]
                         commit_date = datetime.datetime.strptime(
@@ -429,7 +430,7 @@ class LibraryValidator:
                         if commit_date < oldest_commit_date:
                             oldest_commit_date = commit_date
 
-                    date_diff = datetime.datetime.today() - oldest_commit_date
+                    date_diff = datetime.datetime.now() - oldest_commit_date
                     if date_diff.days > datetime.date.today().max.day:
                         return [
                             (
@@ -567,11 +568,11 @@ class LibraryValidator:
         pip_line = pip_line[0]
 
         pylint_info = re.search(re_pylint_pattern, pip_line)
-        if not pylint_info or not pylint_info.group("pylint"):
+        if not pylint_info or not pylint_info["pylint"]:
             return [ERROR_PYLINT_VERSION_NOT_FIXED]
 
         try:
-            pylint_version = Requirement(pylint_info.group("pylint"))
+            pylint_version = Requirement(pylint_info["pylint"])
         except InvalidRequirement:
             pass
 
@@ -586,12 +587,7 @@ class LibraryValidator:
         """Check setup.py for pypi compatibility"""
         download_url = file_info["download_url"]
         contents = requests.get(download_url, timeout=30)
-        if not contents.ok:
-            return [ERROR_PYFILE_DOWNLOAD_FAILED]
-
-        errors = []
-
-        return errors
+        return [] if contents.ok else [ERROR_PYFILE_DOWNLOAD_FAILED]
 
     def _validate_requirements_txt(self, repo, file_info):
         """Check requirements.txt for pypi compatibility"""
@@ -630,13 +626,17 @@ class LibraryValidator:
             # Empty repos return:
             #  - a 404 status code
             #  - a "message" that the repo is empty.
-            if "message" in content_list.json():
-                if "empty" in content_list.json()["message"]:
-                    empty_repo = True
+            if (
+                "message" in content_list.json()
+                and "empty" in content_list.json()["message"]
+            ):
+                empty_repo = True
             if not empty_repo:
-                if not self.validate_contents_quiet:
-                    return [ERROR_UNABLE_PULL_REPO_CONTENTS]
-                return []
+                return (
+                    []
+                    if self.validate_contents_quiet
+                    else [ERROR_UNABLE_PULL_REPO_CONTENTS]
+                )
 
         content_list = content_list.json()
         files = []
@@ -691,7 +691,7 @@ class LibraryValidator:
                     break
 
             if build_yml_url:
-                build_yml_url = build_yml_url + "/workflows/build.yml"
+                build_yml_url = f"{build_yml_url}/workflows/build.yml"
                 response = github.get(build_yml_url)
                 if response.ok:
                     actions_build_info = response.json()
@@ -753,7 +753,7 @@ class LibraryValidator:
                 dirs.extend([x["url"] for x in result_json if x["type"] == "dir"])
                 examples_list.extend([x for x in result_json if x["type"] == "file"])
 
-            if len(examples_list) < 1:
+            if not examples_list:
                 errors.append(ERROR_MISSING_EXAMPLE_FILES)
             else:
 
@@ -863,34 +863,32 @@ class LibraryValidator:
             errors.append(ERROR_RTD_ADABOT_MISSING)
 
         valid_versions = requests.get(
-            "https://readthedocs.org/api/v2/project/{}/active_versions/".format(
-                subproject["id"]
-            ),
+            f'https://readthedocs.org/api/v2/project/{subproject["id"]}/active_versions/',
             timeout=15,
         )
+
         if not valid_versions.ok:
             errors.append(ERROR_RTD_VALID_VERSIONS_FAILED)
         else:
             valid_versions = valid_versions.json()
-            latest_release = github.get(
-                "/repos/{}/releases/latest".format(repo["full_name"])
-            )
+            latest_release = github.get(f'/repos/{repo["full_name"]}/releases/latest')
             if not latest_release.ok:
                 errors.append(ERROR_GITHUB_RELEASE_FAILED)
-            # disabling this for now, since it is ignored and always fails
-            # else:
-            #    if (
-            #       latest_release.json()["tag_name"] not in
-            #       [tag["verbose_name"] for tag in valid_versions["versions"]]
-            #   ):
-            #        errors.append(ERROR_RTD_MISSING_LATEST_RELEASE)
+                # disabling this for now, since it is ignored and always fails
+                # else:
+                #    if (
+                #       latest_release.json()["tag_name"] not in
+                #       [tag["verbose_name"] for tag in valid_versions["versions"]]
+                #   ):
+                #        errors.append(ERROR_RTD_MISSING_LATEST_RELEASE)
 
         # There is no API which gives access to a list of builds for a project so we parse the html
         # webpage.
         builds_webpage = requests.get(
-            "https://readthedocs.org/projects/{}/builds/".format(subproject["slug"]),
+            f'https://readthedocs.org/projects/{subproject["slug"]}/builds/',
             timeout=15,
         )
+
         # pylint: disable=too-many-nested-blocks
         # TODO: look into reducing the number of nested blocks.
         if not builds_webpage.ok:
@@ -904,8 +902,9 @@ class LibraryValidator:
                 if "version latest" in line:
                     break
             build_info = requests.get(
-                "https://readthedocs.org/api/v2/build/{}/".format(build_id), timeout=15
+                f"https://readthedocs.org/api/v2/build/{build_id}/", timeout=15
             )
+
             if not build_info.ok:
                 errors.append(ERROR_RTD_FAILED_TO_LOAD_BUILD_INFO)
             else:
@@ -1049,7 +1048,7 @@ class LibraryValidator:
                                 )
                             elif days_open.days == 0:
                                 days_open += datetime.timedelta(days=(1))
-                            merged_info = " (Days open: {})".format(days_open.days)
+                            merged_info = f" (Days open: {days_open.days})"
 
                         pr_link = "{0}{1}".format(
                             issue["pull_request"]["html_url"], merged_info
@@ -1061,8 +1060,7 @@ class LibraryValidator:
                             pr_commits = github.get(str(pr_info["url"]) + "/commits")
                             if pr_commits.ok:
                                 for commit in pr_commits.json():
-                                    author = commit.get("author")
-                                    if author:
+                                    if author := commit.get("author"):
                                         insights["pr_merged_authors"].add(
                                             author["login"]
                                         )
@@ -1103,7 +1101,7 @@ class LibraryValidator:
             created = datetime.datetime.strptime(
                 issue["created_at"], "%Y-%m-%dT%H:%M:%SZ"
             )
-            days_open = datetime.datetime.today() - created
+            days_open = datetime.datetime.now() - created
             if days_open.days < 0:  # opened earlier today
                 days_open += datetime.timedelta(days=(days_open.days * -1))
             if "pull_request" in issue:
@@ -1163,18 +1161,14 @@ class LibraryValidator:
             and repo["name"].startswith("Adafruit_CircuitPython")
         ):
             return []
-        if not common_funcs.repo_is_on_pypi(repo):
-            return [ERROR_NOT_ON_PYPI]
-        return []
+        return [] if common_funcs.repo_is_on_pypi(repo) else [ERROR_NOT_ON_PYPI]
 
     def validate_labels(self, repo):
         """ensures the repo has the standard labels available"""
         response = github.get("/repos/" + repo["full_name"] + "/labels")
         if not response.ok:
             # replace 'output_handler' with ERROR_OUTPUT_HANDLER
-            self.output_file_data.append(
-                "Labels request failed: {}".format(repo["full_name"])
-            )
+            self.output_file_data.append(f'Labels request failed: {repo["full_name"]}')
             return [ERROR_OUTPUT_HANDLER]
 
         errors = []
@@ -1183,7 +1177,7 @@ class LibraryValidator:
 
         has_all_labels = True
         for label, info in STD_REPO_LABELS.items():
-            if not label in repo_labels:
+            if label not in repo_labels:
                 response = github.post(
                     "/repos/" + repo["full_name"] + "/labels",
                     json={"name": label, "color": info["color"]},
@@ -1191,10 +1185,9 @@ class LibraryValidator:
                 if not response.ok:
                     has_all_labels = False
                     self.output_file_data.append(
-                        "Request to add '{}' label failed: {}".format(
-                            label, repo["full_name"]
-                        )
+                        f"""Request to add '{label}' label failed: {repo["full_name"]}"""
                     )
+
                     if ERROR_OUTPUT_HANDLER not in errors:
                         errors.append(ERROR_OUTPUT_HANDLER)
 
@@ -1243,10 +1236,9 @@ class LibraryValidator:
                 logging.debug("Running pylint on %s", file)
 
                 lint.Run(pylint_args, reporter=reporter, exit=False)
-                pylint_stderr = ""
                 pylint_stdout = reporter.get_result()
 
-                if pylint_stderr:
+                if pylint_stderr := "":
                     self.output_file_data.append(
                         f"PyLint error ({repo['name']}): '{pylint_stderr}'"
                     )

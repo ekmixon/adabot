@@ -112,8 +112,9 @@ def print_list_output(title, coll):
     logger.info("")
     logger.info(title.format(len(coll) - 2))
     long_col = [
-        (max([len(str(row[i])) for row in coll]) + 3) for i in range(len(coll[0]))
+        max(len(str(row[i])) for row in coll) + 3 for i in range(len(coll[0]))
     ]
+
     row_format = "".join(["{:<" + str(this_col) + "}" for this_col in long_col])
     for lib in coll:
         logger.info("%s", row_format.format(*lib))
@@ -125,7 +126,6 @@ def validate_library_properties(repo):
     has been made.
     """
     lib_prop_file = None
-    lib_version = None
     release_tag = None
     lib_prop_file = requests.get(
         "https://raw.githubusercontent.com/adafruit/"
@@ -137,10 +137,9 @@ def validate_library_properties(repo):
         return None  # no library properties file!
 
     lines = lib_prop_file.text.split("\n")
-    for line in lines:
-        if "version" in line:
-            lib_version = line[len("version=") :]
-            break
+    lib_version = next(
+        (line[len("version=") :] for line in lines if "version" in line), None
+    )
 
     get_latest_release = github.get(
         "/repos/adafruit/" + repo["name"] + "/releases/latest"
@@ -150,15 +149,8 @@ def validate_library_properties(repo):
         if "tag_name" in response:
             release_tag = response["tag_name"]
         if "message" in response:
-            if response["message"] == "Not Found":
-                release_tag = "None"
-            else:
-                release_tag = "Unknown"
-
-    if lib_version and release_tag:
-        return [release_tag, lib_version]
-
-    return None
+            release_tag = "None" if response["message"] == "Not Found" else "Unknown"
+    return [release_tag, lib_version] if lib_version and release_tag else None
 
 
 def validate_release_state(repo):
